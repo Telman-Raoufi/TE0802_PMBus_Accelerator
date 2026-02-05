@@ -55,6 +55,62 @@ module pmbus_registers #(
     // Bit 0: irq_status
     logic [C_S_AXI_DATA_WIDTH-1:0] reg_status;
 
-    // We will implement the AXI-Lite logic in the next sub-step.
+    //-------------------------------------------------------------------------
+    // AXI-Lite Write Logic
+    //-------------------------------------------------------------------------
+    assign S_AXI_AWREADY = ~S_AXI_BVALID; // Ready for address if not finishing a transaction
+    assign S_AXI_WREADY  = ~S_AXI_BVALID; // Ready for data if not finishing a transaction
+    assign S_AXI_BRESP   = 2'b00;         // OKAY response
+
+    always_ff @(posedge S_AXI_ACLK) begin
+        if (!S_AXI_ARESETN) begin
+            S_AXI_BVALID <= 1'b0;
+            reg_control  <= 32'h0;
+        end else begin
+            // Write Transaction
+            if (S_AXI_AWVALID && S_AXI_WVALID && !S_AXI_BVALID) begin
+                S_AXI_BVALID <= 1'b1;
+                case (S_AXI_AWADDR[4:2])
+                    3'b000: reg_control <= S_AXI_WDATA; // Offset 0x00
+                endcase
+            end else if (S_AXI_BREADY && S_AXI_BVALID) begin
+                S_AXI_BVALID <= 1'b0;
+            end
+        end
+    end
+
+    // Map internal signals to registers
+    assign decoder_en = reg_control[0];
+    assign irq_clear  = reg_control[1];
+    
+    // Status Register Mapping
+    assign reg_status = {31'h0, irq_status};
+
+    //-------------------------------------------------------------------------
+    // AXI-Lite Read Logic
+    //-------------------------------------------------------------------------
+    assign S_AXI_ARREADY = ~S_AXI_RVALID;
+    assign S_AXI_RRESP   = 2'b00; // OKAY response
+
+    always_ff @(posedge S_AXI_ACLK) begin
+        if (!S_AXI_ARESETN) begin
+            S_AXI_RVALID <= 1'b0;
+            S_AXI_RDATA  <= 32'h0;
+        end else begin
+            if (S_AXI_ARVALID && !S_AXI_RVALID) begin
+                S_AXI_RVALID <= 1'b1;
+                case (S_AXI_ARADDR[4:2])
+                    3'b000: S_AXI_RDATA <= reg_control;
+                    3'b001: S_AXI_RDATA <= reg_status;
+                    3'b010: S_AXI_RDATA <= {24'h0, decoded_cmd};
+                    3'b011: S_AXI_RDATA <= decoded_data_0;
+                    3'b100: S_AXI_RDATA <= decoded_data_1;
+                    default: S_AXI_RDATA <= 32'hDEADBEEF;
+                endcase
+            end else if (S_AXI_RREADY && S_AXI_RVALID) begin
+                S_AXI_RVALID <= 1'b0;
+            end
+        end
+    end
 
 endmodule
